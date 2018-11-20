@@ -1,5 +1,6 @@
 const Mutex = require('await-semaphore').Mutex
 const EthQuery = require('ethjs-query')
+const deepEqual = require('fast-deep-equal');
 const createAsyncMiddleware = require('json-rpc-engine/src/createAsyncMiddleware')
 const createJsonRpcMiddleware = require('eth-json-rpc-middleware/scaffold')
 const LogFilter = require('./log-filter.js')
@@ -22,14 +23,14 @@ function createEthFilterMiddleware({ blockTracker, provider }) {
 
   const middleware = createJsonRpcMiddleware({
     // install filters
-    eth_newFilter:                   waitForFree(createAsyncMiddleware(newLogFilter)),
-    eth_newBlockFilter:              waitForFree(createAsyncMiddleware(newBlockFilter)),
-    eth_newPendingTransactionFilter: waitForFree(createAsyncMiddleware(newPendingTransactionFilter)),
+    eth_newFilter:                   waitForFree(toFilterCreationMiddleware(newLogFilter)),
+    eth_newBlockFilter:              waitForFree(toFilterCreationMiddleware(newBlockFilter)),
+    eth_newPendingTransactionFilter: waitForFree(toFilterCreationMiddleware(newPendingTransactionFilter)),
     // uninstall filters
-    eth_uninstallFilter:             waitForFree(createAsyncMiddleware(uninstallFilter)),
+    eth_uninstallFilter:             waitForFree(toAsyncRpcMiddleware(uninstallFilterHandler)),
     // checking filter changes
-    eth_getFilterChanges:            waitForFree(createAsyncMiddleware(getFilterChanges)),
-    eth_getFilterLogs:               waitForFree(createAsyncMiddleware(getFilterLogs)),
+    eth_getFilterChanges:            waitForFree(toAsyncRpcMiddleware(getFilterChanges)),
+    eth_getFilterLogs:               waitForFree(toAsyncRpcMiddleware(getFilterLogs)),
   })
 
   // setup filter updating and destroy handler
@@ -54,7 +55,16 @@ function createEthFilterMiddleware({ blockTracker, provider }) {
     // unlock update reads
     releaseLock()
   }
-  blockTracker.on('sync', filterUpdater)
+
+  // expose filter methods directly
+  middleware.newLogFilter = newLogFilter
+  middleware.newBlockFilter = newBlockFilter
+  middleware.newPendingTransactionFilter = newPendingTransactionFilter
+  middleware.uninstallFilter = uninstallFilterHandler
+  middleware.getFilterChanges = getFilterChanges
+  middleware.getFilterLogs = getFilterLogs
+
+  // expose destroy method for cleanup
   middleware.destroy = () => {
     uninstallAllFilters()
   }
@@ -65,52 +75,46 @@ function createEthFilterMiddleware({ blockTracker, provider }) {
   // new filters
   //
 
-  async function newLogFilter(req, res, next) {
-    const params = req.params[0]
-    const filter = new LogFilter({ ethQuery, params })
+  async function newLogFilter(params) {
+    const filter = new LogFilter({ provider, ethQuery, params })
     const filterIndex = await installFilter(filter)
-    const result = intToHex(filterIndex)
-    res.result = result
+    return filter
   }
 
-  async function newBlockFilter(req, res, next) {
-    const filter = new BlockFilter({ ethQuery })
+  async function newBlockFilter() {
+    const filter = new BlockFilter({ provider, ethQuery })
     const filterIndex = await installFilter(filter)
-    const result = intToHex(filterIndex)
-    res.result = result
+    return filter
   }
 
-  async function newPendingTransactionFilter(req, res, next) {
-    const filter = new TxFilter({ ethQuery })
+  async function newPendingTransactionFilter() {
+    const filter = new TxFilter({ provider, ethQuery })
     const filterIndex = await installFilter(filter)
-    const result = intToHex(filterIndex)
-    res.result = result
+    return filter
   }
 
   //
   // get filter changes
   //
 
-  async function getFilterChanges(req, res, next) {
-    const filterIndexHex = req.params[0]
+  async function getFilterChanges(filterIndexHex) {
     const filterIndex = hexToInt(filterIndexHex)
     const filter = filters[filterIndex]
     if (!filter) {
       throw new Error('No filter for index "${filterIndex}"')
     }
     const results = filter.getChangesAndClear()
-    res.result = results
+    return results
   }
 
-  async function getFilterLogs(req, res, next, end) {
-    const filterIndexHex = req.params[0]
+  async function getFilterLogs(filterIndexHex) {
     const filterIndex = hexToInt(filterIndexHex)
     const filter = filters[filterIndex]
     if (!filter) {
       throw new Error('No filter for index "${filterIndex}"')
     }
     const results = filter.getAllResults()
-    res.result = results
+    return results
   }
 
 
@@ -118,14 +122,25 @@ function createEthFilterMiddleware({ blockTracker, provider }) {
   // remove filters
   //
 
-
-  async function uninstallFilter(req, res, next) {
-    const filterIndexHex = req.params[0]
+  async function uninstallFilterHandler(filterIndexHex) {
+    // check filter exists
     const filterIndex = hexToInt(filterIndexHex)
     const filter = filters[filterIndex]
-    const results = Boolean(filter)
+    const result = Boolean(filter)
+    // uninstall filter
+    if (result) {
+      await uninstallFilter(filterIndex)
+    }
+    return result
+  }
+
+
+  async function uninstallFilter(filterIndex) {
+    const prevFilterCount = objValues(filters).length
     delete filters[filterIndex]
-    res.result = results
+    // update block tracker subs
+    const newFilterCount = objValues(filters).length
+    updateBlockTrackerSubs({ prevFilterCount, newFilterCount })
   }
 
   async function uninstallAllFilters() {
@@ -153,10 +168,26 @@ function createEthFilterMiddleware({ blockTracker, provider }) {
   //
 
   async function installFilter(filter) {
+    const prevFilterCount = objValues(filters).length
+    // install filter
     const currentBlock = await blockTracker.getLatestBlock()
-    await filter.initialize({ currentBlock })
-    filterIndex++
-    filters[filterIndex] = filter
+    const filterKeys = Object.keys(filters)
+    console.log(filterKeys)
+    const filterAdded = filterKeys.some((_filterKey) => {
+      console.log(JSON.parse(JSON.stringify(filter)))
+      console.log(JSON.parse(JSON.stringify(filters[_filterKey])))
+      return deepEqual(JSON.parse(JSON.stringify(filters[_filterKey])), JSON.parse(JSON.stringify(filter)))
+    })
+    console.log(`filterAdded = ${filterAdded}`)
+
+    if (!filterAdded) {
+      await filter.initialize({ currentBlock })
+      filterIndex++
+      filters[filterIndex] = filter
+    }
+    // update block tracker subs
+    const newFilterCount = objValues(filters).length
+    updateBlockTrackerSubs({ prevFilterCount, newFilterCount })
     return filterIndex
   }
 
