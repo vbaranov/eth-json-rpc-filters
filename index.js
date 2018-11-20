@@ -144,25 +144,26 @@ function createEthFilterMiddleware({ blockTracker, provider }) {
     // install filter
     const currentBlock = await blockTracker.getLatestBlock()
     const filterKeys = Object.keys(filters)
-    console.log(filterKeys)
     const filterAdded = filterKeys.some((_filterKey) => {
-      console.log(JSON.parse(JSON.stringify(filter)))
-      console.log(JSON.parse(JSON.stringify(filters[_filterKey])))
-      return deepEqual(JSON.parse(JSON.stringify(filters[_filterKey])), JSON.parse(JSON.stringify(filter)))
+      const filterJSON = JSON.parse(JSON.stringify(filter))
+      const filterCurrentJSON = JSON.parse(JSON.stringify(filters[_filterKey]))
+      delete filterCurrentJSON.id
+      delete filterCurrentJSON.idHex
+      return deepEqual(filterCurrentJSON, filterJSON)
     })
-    console.log(`filterAdded = ${filterAdded}`)
 
     if (!filterAdded) {
-      await filter.initialize({ currentBlock })
       filterIndex++
       filters[filterIndex] = filter
+      filter.id = filterIndex
+      filter.idHex = intToHex(filterIndex)
+      await filter.initialize({ currentBlock })
     }
     // update block tracker subs
     const newFilterCount = objValues(filters).length
     updateBlockTrackerSubs({ prevFilterCount, newFilterCount })
     return filterIndex
   }
-
 
   async function uninstallFilter(filterIndex) {
     const prevFilterCount = objValues(filters).length
