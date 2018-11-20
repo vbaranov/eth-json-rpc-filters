@@ -118,6 +118,26 @@ function createEthFilterMiddleware({ blockTracker, provider }) {
     res.result = results
   }
 
+  async function uninstallAllFilters() {
+    const prevFilterCount = objValues(filters).length
+    filters = {}
+    // update block tracker subs
+    updateBlockTrackerSubs({ prevFilterCount, newFilterCount: 0 })
+  }
+
+  function updateBlockTrackerSubs({ prevFilterCount, newFilterCount }) {
+    // subscribe
+    if (prevFilterCount === 0 && newFilterCount > 0) {
+      blockTracker.on('sync', filterUpdater)
+      return
+    }
+    // unsubscribe
+    if (prevFilterCount > 0 && newFilterCount === 0) {
+      blockTracker.removeListener('sync', filterUpdater)
+      return
+    }
+  }
+
   //
   // utils
   //

@@ -20,11 +20,11 @@ class LogFilter extends BaseFilter {
   async initialize({ currentBlock }) {
     // resolve params.fromBlock
     let fromBlock = this.params.fromBlock
-    if (['latest', 'pending'].includes(fromBlock)) fromBlock = currentBlock.number
+    if (['latest', 'pending'].includes(fromBlock)) fromBlock = currentBlock
     if ('earliest' === fromBlock) fromBlock = '0x0'
     this.params.fromBlock = fromBlock
     // set toBlock for initial lookup
-    const toBlock = minBlockRef(this.params.toBlock, currentBlock.number)
+    const toBlock = minBlockRef(this.params.toBlock, currentBlock)
     const params = Object.assign({}, this.params, { toBlock })
     // fetch logs and add to results
     const newLogs = await this._fetchLogs(params)
@@ -33,13 +33,13 @@ class LogFilter extends BaseFilter {
 
   async update ({ oldBlock, newBlock }) {
     // configure params for this update
-    const toBlock = newBlock.number
+    const toBlock = newBlock
     let fromBlock
-    // oldBlock is empty on boot
+    // oldBlock is empty on first sync
     if (oldBlock) {
-      fromBlock = incrementHexInt(oldBlock.number)
+      fromBlock = incrementHexInt(oldBlock)
     } else {
-      fromBlock = newBlock.number
+      fromBlock = newBlock
     }
     // fetch logs
     const params = Object.assign({}, this.params, { fromBlock, toBlock })
@@ -63,23 +63,17 @@ class LogFilter extends BaseFilter {
   }
 
   matchLog(log) {
-    // console.log('LogFilter - validateLog:', log)
-
     // check if block number in bounds:
-    // console.log('LogFilter - validateLog - blockNumber', this.fromBlock, this.toBlock)
     if (hexToInt(this.params.fromBlock) >= hexToInt(log.blockNumber)) return false
     if (blockRefIsNumber(this.params.toBlock) && hexToInt(this.params.toBlock) <= hexToInt(log.blockNumber)) return false
 
     // address is correct:
-    // console.log('LogFilter - validateLog - address', this.params.address)
     if (this.params.address && this.params.address !== log.address) return false
 
     // topics match:
     // topics are position-dependant
     // topics can be nested to represent `or` [[a || b], c]
     // topics can be null, representing a wild card for that position
-    // console.log('LogFilter - validateLog - topics', log.topics)
-    // console.log('LogFilter - validateLog - against topics', this.params.topics)
     const topicsMatch = this.params.topics.every((topicPattern, index) => {
       // pattern is longer than actual topics
       const logTopic = log.topics[index]
@@ -93,7 +87,6 @@ class LogFilter extends BaseFilter {
       return topicDoesMatch
     })
 
-    // console.log('LogFilter - validateLog - '+(topicsMatch ? 'approved!' : 'denied!')+' ==============')
     return topicsMatch
   }
 

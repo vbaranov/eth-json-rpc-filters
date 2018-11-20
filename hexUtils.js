@@ -38,6 +38,7 @@ function blockRefIsNumber(blockRef){
 }
 
 function hexToInt(hexString) {
+  if (hexString === undefined || hexString === null) return hexString
   return Number.parseInt(hexString, 16)
 }
 
@@ -48,6 +49,7 @@ function incrementHexInt(hexString){
 }
 
 function intToHex(int) {
+  if (int === undefined || int === null) return int
   let hexString = int.toString(16)
   const needsLeftPad = hexString.length % 2
   if (needsLeftPad) hexString = '0' + hexString
