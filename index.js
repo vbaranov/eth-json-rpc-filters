@@ -122,6 +122,7 @@ function createEthFilterMiddleware({ blockTracker, provider }) {
   // remove filters
   //
 
+
   async function uninstallFilterHandler(filterIndexHex) {
     // check filter exists
     const filterIndex = hexToInt(filterIndexHex)
@@ -132,6 +133,34 @@ function createEthFilterMiddleware({ blockTracker, provider }) {
       await uninstallFilter(filterIndex)
     }
     return result
+  }
+
+  //
+  // utils
+  //
+
+  async function installFilter(filter) {
+    const prevFilterCount = objValues(filters).length
+    // install filter
+    const currentBlock = await blockTracker.getLatestBlock()
+    const filterKeys = Object.keys(filters)
+    console.log(filterKeys)
+    const filterAdded = filterKeys.some((_filterKey) => {
+      console.log(JSON.parse(JSON.stringify(filter)))
+      console.log(JSON.parse(JSON.stringify(filters[_filterKey])))
+      return deepEqual(JSON.parse(JSON.stringify(filters[_filterKey])), JSON.parse(JSON.stringify(filter)))
+    })
+    console.log(`filterAdded = ${filterAdded}`)
+
+    if (!filterAdded) {
+      await filter.initialize({ currentBlock })
+      filterIndex++
+      filters[filterIndex] = filter
+    }
+    // update block tracker subs
+    const newFilterCount = objValues(filters).length
+    updateBlockTrackerSubs({ prevFilterCount, newFilterCount })
+    return filterIndex
   }
 
 
@@ -161,34 +190,6 @@ function createEthFilterMiddleware({ blockTracker, provider }) {
       blockTracker.removeListener('sync', filterUpdater)
       return
     }
-  }
-
-  //
-  // utils
-  //
-
-  async function installFilter(filter) {
-    const prevFilterCount = objValues(filters).length
-    // install filter
-    const currentBlock = await blockTracker.getLatestBlock()
-    const filterKeys = Object.keys(filters)
-    console.log(filterKeys)
-    const filterAdded = filterKeys.some((_filterKey) => {
-      console.log(JSON.parse(JSON.stringify(filter)))
-      console.log(JSON.parse(JSON.stringify(filters[_filterKey])))
-      return deepEqual(JSON.parse(JSON.stringify(filters[_filterKey])), JSON.parse(JSON.stringify(filter)))
-    })
-    console.log(`filterAdded = ${filterAdded}`)
-
-    if (!filterAdded) {
-      await filter.initialize({ currentBlock })
-      filterIndex++
-      filters[filterIndex] = filter
-    }
-    // update block tracker subs
-    const newFilterCount = objValues(filters).length
-    updateBlockTrackerSubs({ prevFilterCount, newFilterCount })
-    return filterIndex
   }
 
 }
