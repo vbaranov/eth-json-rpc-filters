@@ -15,7 +15,7 @@ function createEthFilterMiddleware({ blockTracker, provider }) {
   const ethQuery = new EthQuery(provider)
   // create filter collection
   let filterIndex = 0
-  const filters = {}
+  let filters = {}
   // create update mutex
   const mutex = new Mutex()
   const waitForFree = mutexMiddlewareWrapper({ mutex })
@@ -37,16 +37,26 @@ function createEthFilterMiddleware({ blockTracker, provider }) {
     if (filters.length === 0) return
     // lock update reads
     const releaseLock = await mutex.acquire()
-    // process all filters in parallel
-    await Promise.all(objValues(filters).map((filter) => {
-      return filter.update({ oldBlock, newBlock })
-    }))
+    try {
+      // process all filters in parallel
+      await Promise.all(objValues(filters).map(async (filter) => {
+        try {
+         await filter.update({ oldBlock, newBlock })
+        } catch (err) {
+          // handle each error individually so filter update errors don't affect other filters
+          console.error(err)
+        }
+      }))
+    } catch (err) {
+      // log error so we don't skip the releaseLock
+      console.error(err)
+    }
     // unlock update reads
     releaseLock()
   }
   blockTracker.on('sync', filterUpdater)
   middleware.destroy = () => {
-    blockTracker.removeListener('sync', filterUpdater)
+    uninstallAllFilters()
   }
 
   return middleware
